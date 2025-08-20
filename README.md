@@ -14,7 +14,48 @@ It is designed to run entirely in **web environments** (GitHub + Render + Vercel
 - **React frontend**: Upload CSV, launch training runs, view metrics & status
 - **Cloud-native**: Deployable on free Render (backend) + Vercel (frontend)
 
----
+## 📂 Repo Structure
+neurogenx-ng1/
+  backend/
+    app/
+      main.py
+      core/
+        orchestrator.py
+        registry.py
+        telemetry.py
+        schemas.py
+      agents/
+        base.py
+        ingest_csv.py
+        prep_basic.py
+        search_optuna.py
+        evaluate.py
+        deploy_fastapi.py
+      utils/
+        io.py
+        hashing.py
+        metrics.py
+    tests/  (empty for now)
+    requirements.txt
+    runtime.txt
+  frontend/
+    index.html
+    package.json
+    vite.config.js
+    src/
+      main.jsx
+      App.jsx
+      components/
+        UploadPanel.jsx
+        RunLauncher.jsx
+        TrialTable.jsx
+        MetricsCard.jsx
+  models/            (keep small; tracked artifacts)
+  data/              (.gitignore; uploads live on server)
+  .github/workflows/ci.yml
+  README.md
+  LICENSE
+
 neurogenx-ng1/ backend/       # FastAPI app, agents, registry, utils frontend/      # React dashboard (Vite + React) .github/       # GitHub Actions workflow models/        # Saved champion models & manifests data/          # Uploaded datasets (ignored in git)
  ## 🚀 Quick Start
 
@@ -61,44 +102,3 @@ If you want stronger protection (e.g. prevent closed-source forks), use **AGPL v
 - **v0.4**: Canary deploys + Safety gates  
 - **v0.5**: Multi-agent Planner/Executor + Plugin API
 
-## 📂 Repo Structure
-neurogenx-ng1/
-  backend/
-    app/
-      main.py
-      core/
-        orchestrator.py
-        registry.py
-        telemetry.py
-        schemas.py
-      agents/
-        base.py
-        ingest_csv.py
-        prep_basic.py
-        search_optuna.py
-        evaluate.py
-        deploy_fastapi.py
-      utils/
-        io.py
-        hashing.py
-        metrics.py
-    tests/  (empty for now)
-    requirements.txt
-    runtime.txt
-  frontend/
-    index.html
-    package.json
-    vite.config.js
-    src/
-      main.jsx
-      App.jsx
-      components/
-        UploadPanel.jsx
-        RunLauncher.jsx
-        TrialTable.jsx
-        MetricsCard.jsx
-  models/            (keep small; tracked artifacts)
-  data/              (.gitignore; uploads live on server)
-  .github/workflows/ci.yml
-  README.md
-  LICENSE
