@@ -62,3 +62,43 @@ If you want stronger protection (e.g. prevent closed-source forks), use **AGPL v
 - **v0.5**: Multi-agent Planner/Executor + Plugin API
 
 ## 📂 Repo Structure
+neurogenx-ng1/
+  backend/
+    app/
+      main.py
+      core/
+        orchestrator.py
+        registry.py
+        telemetry.py
+        schemas.py
+      agents/
+        base.py
+        ingest_csv.py
+        prep_basic.py
+        search_optuna.py
+        evaluate.py
+        deploy_fastapi.py
+      utils/
+        io.py
+        hashing.py
+        metrics.py
+    tests/  (empty for now)
+    requirements.txt
+    runtime.txt
+  frontend/
+    index.html
+    package.json
+    vite.config.js
+    src/
+      main.jsx
+      App.jsx
+      components/
+        UploadPanel.jsx
+        RunLauncher.jsx
+        TrialTable.jsx
+        MetricsCard.jsx
+  models/            (keep small; tracked artifacts)
+  data/              (.gitignore; uploads live on server)
+  .github/workflows/ci.yml
+  README.md
+  LICENSE
