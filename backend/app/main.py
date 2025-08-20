@@ -1,29 +1,17 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-app = FastAPI()
-
-# Allow CORS from frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/")
-def read_root():
-    return {"message": "NeuroGenX backend is live!"}
-
-@app.get("/predict")
-def predict(text: str):
-    # Placeholder AI function
-    return {"prediction": f"You sent: {text}"}
-
 from app.core.orchestrator import start_run, get_status, load_champion, predict_rows
 from app.core.schemas import RunRequest
 import pandas as pd
 import os
+from fastapi import FastAPI
+
+app = FastAPI()
+
+# Add this route to handle requests to the root URL "/"
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the NeuroGenX AI backend!"}
 
 app = FastAPI(title="NeuroGenX NG-1 API")
 
