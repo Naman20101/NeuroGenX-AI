@@ -1,12 +1,12 @@
-fastapi==0.115.2
-uvicorn==0.30.6
-pydantic==2.9.2
+fastapi
+uvicorn
+pydantic
 
-pandas==2.2.3 --only-binary=:all:
-numpy==1.26.4 --only-binary=:all:
-scikit-learn==1.5.2 --only-binary=:all:
+pandas
+numpy
+scikit-learn
 
-optuna==3.6.1
-joblib==1.4.2
-python-multipart==0.0.9
-orjson==3.10.7
+optuna
+joblib
+python
+orjson
