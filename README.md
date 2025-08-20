@@ -50,7 +50,7 @@ https://<your-service>.onrender.com/docs
 ---
 
 ## 🛡 License
-This project is licensed under the **MIT License** (permissive, lets others use it but credits you).  
+This project is licensed under the **Apache 2.0 ** (permissive, lets others use it but credits you).  
 If you want stronger protection (e.g. prevent closed-source forks), use **AGPL v3**.
 
 ---
