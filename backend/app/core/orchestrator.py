@@ -1,7 +1,7 @@
 import uuid
 from app.core.telemetry import init_run, log, get as get_run
 from app.core.registry import load_latest
-from ..agents.ingest_csv import IngestCSV
+from app.agents.ingest_csv import IngestCSV
 from app.agents.prep_basic import PrepBasic
 from app.agents.search_optuna import SearchOptuna
 from app.agents.evaluate import Evaluate
