@@ -4,22 +4,20 @@ from app.core.orchestrator import start_run, get_status, load_champion, predict_
 from app.core.schemas import RunRequest
 import pandas as pd
 import os
-from fastapi import FastAPI
 
-app = FastAPI()
+app = FastAPI(title="NeuroGenX NG-1 API") # This is the only app declaration
 
-# Add this route to handle requests to the root URL "/"
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the NeuroGenX AI backend!"}
-
-app = FastAPI(title="NeuroGenX NG-1 API")
-
+# This middleware is now part of the correct app instance
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# This route is now correctly associated with the single app instance
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the NeuroGenX AI backend!"}
 
 os.makedirs("data", exist_ok=True)
 os.makedirs("models", exist_ok=True)
