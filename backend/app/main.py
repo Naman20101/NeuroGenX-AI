@@ -69,9 +69,10 @@ def champion():
     return load_champion()
 
 @app.post("/predict")
-def predict_model(data: PredictionInput):
-    print("Received data:", data)  # See what data the API is getting.
-    prediction = some_prediction_function(data)
-    print("Model output:", prediction)  # See what the model is returning.
-    return {"prediction": prediction}
+def predict(rows: list[dict]):
+    """
+    Makes predictions on a list of data rows using the champion model.
+    """
+    return {"preds": predict_rows(rows)}
+
 
