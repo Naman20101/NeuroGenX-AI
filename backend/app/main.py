@@ -34,13 +34,9 @@ async def upload_dataset(file: UploadFile = File(...)):
     return {"dataset_id": file.filename, "columns": cols, "dtypes": dtypes}
 
 @app.post("/runs/start")
-def runs_start(req: RunRequest, tasks: BackgroundTasks):
-    # This correctly adds the start_run function to the background tasks.
-    tasks.add_task(start_run, req.dict())
-    
-    # Since the run is now asynchronous, we can't get a run_id immediately.
-    # You should return a message confirming the task has started.
-    return {"message": "Run started in background."}
+def runs_start(req: RunRequest):
+    run_id = start_run(req.dict())
+    return {"run_id": run_id}
 
 @app.get("/runs/{run_id}/status")
 def runs_status(run_id: str):
