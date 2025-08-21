@@ -18,11 +18,11 @@ ENV/
 .ipynb_checkpoints/
 
 # Data & models
-data/
-models/
-*.csv
-*.pkl
-*.joblib
+# data/
+# models/
+# *.csv
+# *.pkl
+# *.joblib
 
 # Frontend build outputs
 frontend/node_modules/
