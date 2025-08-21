@@ -9,7 +9,10 @@ import pandas as pd
 
 from .core.schemas import RunRequest
 from .storage import save_dataset, load_csv, new_run, append_event, set_status, get_status, load_champion
-from .training import train_genetic
+
+# --- THIS IS THE CORRECTED PART ---
+# The import path for training needs to include the 'core' directory.
+from .core.training import train_genetic
 
 app = FastAPI(title="NeuroGenX NG-1 v2", default_response_class=None)
 
@@ -97,4 +100,3 @@ def predict(payload: List[Dict[str, Any]]):
         raw = pipe.decision_function(X)
         preds = (1 / (1 + np.exp(-raw))).tolist()
     return {"preds": preds}
-
