@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 import orjson
 import pandas as pd
 
-from .schemas import RunRequest
+from .core.schemas import RunRequest
 from .storage import save_dataset, load_csv, new_run, append_event, set_status, get_status, load_champion
 from .training import train_genetic
 
