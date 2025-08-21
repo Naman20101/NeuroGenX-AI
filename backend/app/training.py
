@@ -1,0 +1,151 @@
+from __future__ import annotations
+import time, json
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Tuple
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from joblib import dump
+from .genetic import initial_population, evolve, instantiate
+from .storage import append_event, set_status, model_dir_for, save_champion
+
+def _infer_numeric(df: pd.DataFrame) -> List[str]:
+    return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+
+def _make_pipeline(family: str, params: Dict[str, Any], numeric_cols: List[str]) -> Pipeline:
+    scaler = ("scaler", StandardScaler(with_mean=True, with_std=True))
+    pre = ColumnTransformer(transformers=[
+        ("num", Pipeline(steps=[scaler]), numeric_cols)
+    ], remainder="drop")
+    clf = instantiate(family, params)
+    return Pipeline(steps=[("pre", pre), ("clf", clf)])
+
+def _score(y_true: np.ndarray, y_prob: np.ndarray) -> Dict[str, float]:
+    try:
+        auc = roc_auc_score(y_true, y_prob)
+    except Exception:
+        # If all probs same or class degenerate
+        auc = 0.5
+    y_pred = (y_prob >= 0.5).astype(int)
+    try:
+        f1 = f1_score(y_true, y_pred)
+    except Exception:
+        f1 = 0.0
+    return {"auc": float(auc), "f1": float(f1)}
+
+def train_genetic(run_id: str, df: pd.DataFrame, target: str, n_trials: int) -> Dict[str, Any]:
+    append_event(run_id, "ingest", {"rows": int(df.shape[0]), "cols": int(df.shape[1])})
+
+    if target not in df.columns:
+        set_status(run_id, "error")
+        append_event(run_id, "error", {"msg": f"Target '{target}' not in columns"})
+        return {"ok": False, "error": "target_missing"}
+
+    y = df[target].astype(int).values
+    X = df.drop(columns=[target])
+    numeric_cols = _infer_numeric(X)
+    if not numeric_cols:
+        set_status(run_id, "error")
+        append_event(run_id, "error", {"msg": "No numeric features found"})
+        return {"ok": False, "error": "no_numeric_features"}
+
+    # Hold-out split (class-aware, small-dataset safe)
+    test_size = 0.2 if len(df) >= 50 else 0.5
+    try:
+        Xtr, Xval, ytr, yval = train_test_split(
+            X[numeric_cols].values, y, test_size=test_size, random_state=42, stratify=y if len(np.unique(y)) > 1 else None
+        )
+    except ValueError:
+        # If stratify fails due to tiny class counts
+        Xtr, Xval, ytr, yval = train_test_split(
+            X[numeric_cols].values, y, test_size=test_size, random_state=42
+        )
+    append_event(run_id, "prep", {"numeric_features": numeric_cols, "val_rows": int(len(yval))})
+
+    # Genetic search (small + fast)
+    pop_size = min(8, max(4, n_trials // 2))
+    gens = min(4, max(2, n_trials // pop_size))
+    population = initial_population(pop_size)
+    history = []
+
+    for g in range(gens):
+        scored = []
+        for fam, params in population:
+            pipe = _make_pipeline(fam, params, list(range(len(numeric_cols))))
+            pipe.fit(Xtr, ytr)
+            prob = getattr(pipe.named_steps["clf"], "predict_proba", None)
+            if prob is not None:
+                y_prob = pipe.predict_proba(Xval)[:, 1]
+            else:
+                # Some models (GB) still expose decision_function; map to 0..1 via logistic
+                try:
+                    raw = pipe.decision_function(Xval)
+                    y_prob = 1 / (1 + np.exp(-raw))
+                except Exception:
+                    # Fallback to predictions as probs (bad but safe)
+                    y_prob = pipe.predict(Xval).astype(float)
+            metrics = _score(yval, y_prob)
+            scored.append(((fam, params), metrics, pipe))
+        # sort by AUC then F1
+        scored.sort(key=lambda t: (t[1]["auc"], t[1]["f1"]), reverse=True)
+        best = scored[0]
+        history.append({"gen": g, "best_metrics": best[1]})
+        append_event(run_id, "search", {"generation": g, "best": best[1]})
+        # evolve
+        population = [(fam, params) for (fam, params), _, _ in scored]
+        population = [(fam, params) for (fam, params) in [p[0] for p in scored]]  # keep order
+        population = [(p[0][0], p[0][1]) for p in scored]  # cleanup
+        population = [(fam, params) for (fam, params), _, _ in scored]
+        population = population[: max(2, pop_size // 2)]  # survivors
+        population = [(fam, params) for fam, params in population]
+        population = population + [(fam, params) for fam, params in population]  # duplicate to fill
+        while len(population) < pop_size:
+            fam, gen_fn = random.choice([("logreg", None), ("rf", None), ("gb", None)])
+            # use family-balanced random fill
+            from .genetic import FAMILIES
+            fam, gen = random.choice(FAMILIES)
+            population.append((fam, gen()))
+        # mutate survivors slightly
+        from .genetic import mutate
+        population = population[:pop_size]
+        population = [(fam, mutate(fam, params)) if i >= len(population)//2 else (fam, params)
+                      for i, (fam, params) in enumerate(population)]
+
+    # Final best model = best of last generation scored above
+    # Rebuild scored for last population to get the best pipe object
+    final_scored = []
+    for fam, params in population:
+        pipe = _make_pipeline(fam, params, list(range(len(numeric_cols))))
+        pipe.fit(Xtr, ytr)
+        prob = getattr(pipe.named_steps["clf"], "predict_proba", None)
+        y_prob = pipe.predict_proba(Xval)[:, 1] if prob else (1 / (1 + np.exp(-pipe.decision_function(Xval))))
+        metrics = _score(yval, y_prob)
+        final_scored.append(((fam, params), metrics, pipe))
+    final_scored.sort(key=lambda t: (t[1]["auc"], t[1]["f1"]), reverse=True)
+    (best_fam, best_params), best_metrics, best_pipe = final_scored[0]
+
+    append_event(run_id, "eval", {"metrics": best_metrics, "family": best_fam, "params": best_params})
+
+    # Save artifacts
+    mdir = model_dir_for(run_id)
+    pipe_path = mdir / "pipeline.joblib"
+    dump(best_pipe, pipe_path)
+
+    manifest = {
+        "run_id": run_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "metrics": best_metrics,
+        "model": {"family": best_fam, "params": best_params},
+        "features": _infer_numeric(df.drop(columns=[target])),
+        "artifacts": {"pipeline": str(pipe_path)}
+    }
+    (mdir / "manifest.json").write_text(json.dumps(manifest))
+    save_champion(manifest)
+    append_event(run_id, "deploy", {"ok": True, "champion": True})
+
+    set_status(run_id, "done")
+    return {"ok": True, "manifest": manifest}
