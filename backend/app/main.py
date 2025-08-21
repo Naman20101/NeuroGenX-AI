@@ -1,59 +1,48 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.orchestrator import start_run, get_status, load_champion, predict_rows
+from app.core.schemas import RunRequest
 import pandas as pd
 import os
-import shutil
-import logging
-from .core.orchestrator import start_run
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = FastAPI(title="NeuroGenX NG-1 API")
 
-app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
 
-# Directory to save uploaded datasets
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-
-class RunRequest(BaseModel):
-    dataset_id: str
-    target: str
-    n_trials: int
+os.makedirs("data", exist_ok=True)
+os.makedirs("models", exist_ok=True)
 
 @app.post("/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)):
-    """
-    Endpoint to upload a new dataset.
-    The file will be saved to the 'data/' directory on the server.
-    """
-    try:
-        file_path = os.path.join(DATA_DIR, file.filename)
-        # Use shutil.copyfileobj for efficient file writing
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        logger.info(f"Successfully uploaded dataset: {file.filename}")
-        return {"filename": file.filename, "message": "File uploaded successfully."}
-    except Exception as e:
-        logger.error(f"Error uploading file: {e}")
-        raise HTTPException(status_code=500, detail=f"Error uploading file: {e}")
-
+    path = os.path.join("data", file.filename)
+    with open(path, "wb") as f:
+        f.write(await file.read())
+    # simple schema infer
+    df = pd.read_csv(path, nrows=200)
+    cols = df.columns.tolist()
+    dtypes = {c: str(df[c].dtype) for c in cols}
+    return {"dataset_id": file.filename, "columns": cols, "dtypes": dtypes}
 
 @app.post("/runs/start")
-def runs_start(req: RunRequest):
-    """
-    Endpoint to start a new run with the uploaded dataset.
-    """
-    try:
-        logger.info(f"Starting run with request: {req.dict()}")
-        run_id = start_run(req.dict())
-        return {"run_id": run_id}
-    except Exception as e:
-        logger.error(f"Error starting run: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+def runs_start(req: RunRequest, tasks: BackgroundTasks):
+    run_id = start_run(req.dict())
+    # v0.1: run synchronously in a BG task to keep deploy simple
+    tasks.add_task(lambda: None)
+    return {"run_id": run_id}
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the Neurogenx AI API!"}
+@app.get("/runs/{run_id}/status")
+def runs_status(run_id: str):
+    return get_status(run_id)
+
+@app.get("/models/champion")
+def champion():
+    return load_champion()
+
+@app.post("/predict")
+def predict(rows: list[dict]):
+    return {"preds": predict_rows(rows)}
 
