@@ -1,83 +1,78 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.orchestrator import start_run, get_status, load_champion, predict_rows
+from app.core.schemas import RunRequest
+import pandas as pd
 import os
-import shutil
-import logging
-import pandas as pd # Make sure pandas is installed
 
-# The start_run function from your core orchestrator logic
-from .core.orchestrator import start_run
+# Set a title and description for the API, which helps the documentation generator.
+app = FastAPI(
+    title="NeuroGenX NG-1 API",
+    description="API for NeuroGenX NG-1, managing datasets, machine learning runs, and predictions."
+)
 
-# --- Application Setup and Logging ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Initialize the FastAPI app
-app = FastAPI()
+os.makedirs("data", exist_ok=True)
+os.makedirs("models", exist_ok=True)
 
-# Directory to save uploaded datasets. This directory MUST be writable.
-DATA_DIR = "data"
-# Create the data directory if it doesn't exist
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# --- Pydantic Model for Request Body Validation ---
-class RunRequest(BaseModel):
-    """
-    Defines the expected structure for the run start request.
-    This helps FastAPI validate incoming JSON payloads.
-    """
-    dataset_id: str
-    target: str
-    n_trials: int
-
-# --- API Endpoints ---
-
+# Add a root endpoint for a basic health check.
 @app.get("/")
 def read_root():
     """
-    A simple root endpoint to check if the server is running.
-    This will now successfully return a 200 OK message.
+    A simple endpoint to confirm the API is up and running.
     """
-    logger.info("GET request to root endpoint received.")
-    return {"message": "Welcome to the Neurogenx AI API! The server is running."}
-
+    return {"message": "Welcome to the NeuroGenX NG-1 API! The server is running."}
 
 @app.post("/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)):
     """
-    Handles the dynamic uploading of a CSV file.
-    The file is saved directly to the server's 'data' directory.
-    This endpoint replaces the need to manually add files to Git.
+    Uploads a dataset CSV file to the 'data' directory.
     """
-    try:
-        # Construct the full path where the file will be saved
-        file_path = os.path.join(DATA_DIR, file.filename)
-        
-        # Use a more robust way to handle file I/O
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        logger.info(f"Successfully uploaded dataset: {file.filename}")
-        return {"filename": file.filename, "message": "File uploaded successfully."}
-    except Exception as e:
-        logger.error(f"Error during file upload: {e}")
-        # Return a 500 error if something goes wrong
-        raise HTTPException(status_code=500, detail=f"Error uploading file: {e}")
-
+    path = os.path.join("data", file.filename)
+    with open(path, "wb") as f:
+        f.write(await file.read())
+    # simple schema infer
+    df = pd.read_csv(path, nrows=200)
+    cols = df.columns.tolist()
+    dtypes = {c: str(df[c].dtype) for c in cols}
+    return {"dataset_id": file.filename, "columns": cols, "dtypes": dtypes}
 
 @app.post("/runs/start")
-def runs_start(req: RunRequest):
+def runs_start(req: RunRequest, tasks: BackgroundTasks):
     """
-    Starts a new machine learning run using the specified dataset.
-    This will now find the file you previously uploaded via the /datasets/upload endpoint.
+    Starts a new machine learning run in the background.
     """
-    try:
-        logger.info(f"Starting run with request: {req.dict()}")
-        # Call the orchestrator function with the request payload
-        run_id = start_run(req.dict())
-        return {"run_id": run_id}
-    except Exception as e:
-        logger.error(f"Error starting run: {e}")
-        # Return a 500 error if something goes wrong during the run
-        raise HTTPException(status_code=500, detail=str(e))
+    run_id = start_run(req.dict())
+    # v0.1: run synchronously in a BG task to keep deploy simple
+    tasks.add_task(lambda: None)
+    return {"run_id": run_id}
+
+@app.get("/runs/{run_id}/status")
+def runs_status(run_id: str):
+    """
+    Retrieves the status of a specific run.
+    """
+    return get_status(run_id)
+
+@app.get("/models/champion")
+def champion():
+    """
+    Loads and returns information about the current champion model.
+    """
+    return load_champion()
+
+@app.post("/predict")
+def predict(rows: list[dict]):
+    """
+    Makes predictions on a list of data rows using the champion model.
+    """
+    return {"preds": predict_rows(rows)}
+
 
