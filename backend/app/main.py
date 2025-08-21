@@ -1,140 +1,59 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
-from typing import Dict, List
-from pathlib import Path
-import shutil
 import pandas as pd
+import os
+import shutil
 import logging
+from .core.orchestrator import start_run
 
-from app.core.orchestrator import start_run, get_status, load_champion, predict_rows
-
-# --- Configuration and Setup ---
-
-# Define the root directory for uploads using a more robust Path object
-UPLOAD_DIR = Path("data")
-
-# Create a logger for better error reporting
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Ensure the upload directory exists on startup
-try:
-    UPLOAD_DIR.mkdir(exist_ok=True)
-except Exception as e:
-    logger.error(f"Failed to create upload directory: {e}")
-    # You might want to exit the application here if the directory is critical
+app = FastAPI()
 
-app = FastAPI(
-    title="NeuroGenX AI API",
-    description="A robust API for automated machine learning workflows.",
-    version="1.0.0",
-)
+# Directory to save uploaded datasets
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# --- Pydantic Models for Request Validation ---
-
-class StartRunPayload(BaseModel):
-    """
-    Validates the payload for starting a new run.
-    Ensures required fields are present and correctly typed.
-    """
+class RunRequest(BaseModel):
     dataset_id: str
     target: str
     n_trials: int
 
-class PredictPayload(BaseModel):
-    """
-    Validates the payload for making predictions.
-    Ensures the 'rows' field is a list of dictionaries.
-    """
-    rows: List[Dict]
-
-# --- Dependency Injection for Reusable Logic ---
-
-def get_upload_dir() -> Path:
-    """Provides the upload directory path."""
-    return UPLOAD_DIR
-
-# --- Endpoints with Advanced Error Handling ---
-
-@app.get("/health")
-def health():
-    """Simple health check endpoint."""
-    return {"status": "ok"}
-
 @app.post("/datasets/upload")
-async def upload_dataset(
-    file: UploadFile = File(...),
-    upload_dir: Path = Depends(get_upload_dir)
-):
+async def upload_dataset(file: UploadFile = File(...)):
     """
-    Uploads a CSV file to the server.
-    Handles file saving and returns metadata.
+    Endpoint to upload a new dataset.
+    The file will be saved to the 'data/' directory on the server.
     """
-    # Use Path objects for safe and clean file path manipulation
-    file_path = upload_dir / file.filename
-    
-    # Robustly handle the file saving process
     try:
-        with file_path.open("wb") as buffer:
+        file_path = os.path.join(DATA_DIR, file.filename)
+        # Use shutil.copyfileobj for efficient file writing
+        with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        logger.info(f"Successfully uploaded and saved file: {file.filename}")
+        
+        logger.info(f"Successfully uploaded dataset: {file.filename}")
+        return {"filename": file.filename, "message": "File uploaded successfully."}
     except Exception as e:
-        logger.error(f"Error saving file '{file.filename}': {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+        logger.error(f"Error uploading file: {e}")
+        raise HTTPException(status_code=500, detail=f"Error uploading file: {e}")
 
-    # Robustly handle the file reading for metadata extraction
-    try:
-        df = pd.read_csv(file_path)
-        return {
-            "dataset_id": file.filename,
-            "columns": df.columns.tolist(),
-            "dtypes": df.dtypes.astype(str).to_dict()
-        }
-    except Exception as e:
-        # If metadata extraction fails, return a 400 Bad Request
-        logger.error(f"Error reading file '{file.filename}' for metadata: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid CSV file format: {e}")
 
 @app.post("/runs/start")
-def start_run_endpoint(payload: StartRunPayload):
+def runs_start(req: RunRequest):
     """
-    Starts an automated machine learning run.
-    Returns the unique run_id.
+    Endpoint to start a new run with the uploaded dataset.
     """
-    # The orchestrator handles the core logic, so we wrap its call in a try/except
-    # to catch any unexpected errors and return a 500 error gracefully.
     try:
-        run_id = start_run(payload.dict())
+        logger.info(f"Starting run with request: {req.dict()}")
+        run_id = start_run(req.dict())
         return {"run_id": run_id}
     except Exception as e:
-        logger.error(f"An error occurred while starting run for payload: {payload.dict()}. Error: {e}")
-        raise HTTPException(status_code=500, detail="An internal server error occurred while starting the run.")
+        logger.error(f"Error starting run: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/runs/{run_id}/status")
-def get_run_status(run_id: str):
-    """Gets the status and logs for a specific run."""
-    status = get_status(run_id)
-    if "error" in status:
-        raise HTTPException(status_code=404, detail=status["error"])
-    return status
-
-@app.get("/champion")
-def get_champion():
-    """Retrieves metadata for the latest champion model."""
-    manifest = load_champion()
-    if "detail" in manifest:
-        raise HTTPException(status_code=404, detail=manifest["detail"])
-    return manifest
-
-@app.post("/predict")
-def predict_endpoint(payload: PredictPayload):
-    """Makes predictions using the latest deployed champion model."""
-    try:
-        preds = predict_rows(payload.rows)
-        if "detail" in preds:
-            raise HTTPException(status_code=404, detail=preds["detail"])
-        return preds
-    except Exception as e:
-        logger.error(f"Prediction failed for payload: {payload.rows}. Error: {e}")
-        raise HTTPException(status_code=500, detail="Prediction failed. Check server logs for details.")
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the Neurogenx AI API!"}
 
