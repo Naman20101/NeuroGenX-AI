@@ -41,52 +41,38 @@ async def root() -> Dict[str, str]:
 @app.post("/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
-    Handles the upload of a CSV dataset, saves it, and returns a summary.
+    Handles the upload of a CSV dataset, saves it with a unique ID, and returns a summary.
     """
     try:
         logging.info(f"Received upload request for file: {file.filename}")
+        
+        # This is the key change: generate a unique dataset ID on the backend
+        dataset_id = str(uuid.uuid4())
+        
+        # Read the file contents
         contents = await file.read()
-        # Create a temporary path for the uploaded file
-        temp_path = f"/tmp/{file.filename}"
+        
+        # Create a temporary path for the uploaded file using the unique ID
+        temp_path = f"/tmp/{dataset_id}"
         with open(temp_path, "wb") as f:
             f.write(contents)
         
-        # Save the dataset and get the destination path
-        dst = save_dataset(temp_path, file.filename)
+        # Save the dataset using the new unique ID
+        dst = save_dataset(temp_path, dataset_id)
         
         # Read a quick peek of the CSV to get columns and dtypes
         df = pd.read_csv(dst, nrows=100)
         cols = list(df.columns)
         dtypes = {c: str(df[c].dtype) for c in cols}
         
-        logging.info(f"Dataset {file.filename} processed. Columns: {cols}")
-        return {"dataset_id": file.filename, "columns": cols, "dtypes": dtypes}
+        logging.info(f"Dataset {dataset_id} processed. Columns: {cols}")
+        
+        # Return the new, unique dataset_id to the frontend
+        return {"dataset_id": dataset_id, "columns": cols, "dtypes": dtypes}
+        
     except Exception as e:
         logging.error(f"Error during dataset upload: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process the dataset: {str(e)}")
-
-
-def _background_train(run_id: str, req: RunRequest):
-    """
-    This function runs in the background to start the training process.
-    """
-    try:
-        logging.info(f"Background training started for run_id: {run_id}")
-        df = load_csv(req.dataset_id)
-        res = train_genetic(run_id, df, req.target, req.n_trials)
-        if not res.get("ok"):
-            set_status(run_id, "error")
-            append_event(run_id, "error", {"msg": res.get("error", "unknown")})
-            logging.error(f"Training failed for run {run_id}: {res.get('error', 'unknown')}")
-        else:
-            logging.info(f"Training for run {run_id} completed successfully.")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during background training for run {run_id}", exc_info=True)
-        set_status(run_id, "error")
-        append_event(run_id, "error", {
-            "msg": str(e),
-            "trace": traceback.format_exc()[:5000]
-        })
 
 @app.post("/runs/start")
 async def runs_start(req: RunRequest):
