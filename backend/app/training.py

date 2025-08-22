@@ -11,7 +11,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from joblib import dump
 from .genetic import initial_population, evolve, instantiate
-from .storage import append_event, set_status, model_dir_for, save_champion
+from ..storage import append_event, set_status, model_dir_for, save_champion
 
 def _infer_numeric(df: pd.DataFrame) -> List[str]:
     return [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
