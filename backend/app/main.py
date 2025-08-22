@@ -7,15 +7,13 @@ from typing import Dict, Any, List
 import orjson
 import pandas as pd
 import logging
-
-# Set up logging for better visibility into what's happening
-logging.basicConfig(level=logging.INFO)
-
-# Import schemas and other modules.
-# The import paths are now correct thanks to your previous fixes.
+import uuid
 from .core.schemas import RunRequest
 from .storage import save_dataset, load_csv, new_run, append_event, set_status, get_status, load_champion
 from .core.training import train_genetic
+
+# Set up logging for better visibility into what's happening
+logging.basicConfig(level=logging.INFO)
 
 # Initialize the FastAPI app with a default response class that allows for flexibility.
 app = FastAPI(title="NeuroGenX NG-1 v2")
@@ -41,38 +39,54 @@ async def root() -> Dict[str, str]:
 @app.post("/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
-    Handles the upload of a CSV dataset, saves it with a unique ID, and returns a summary.
+    Handles the upload of a CSV dataset, saves it, and returns a summary.
+    This version generates a unique ID and saves the file directly.
     """
     try:
         logging.info(f"Received upload request for file: {file.filename}")
         
-        # This is the key change: generate a unique dataset ID on the backend
+        # Generate a unique ID for the dataset
         dataset_id = str(uuid.uuid4())
-        
-        # Read the file contents
+
+        # Read the file contents directly from the upload stream
         contents = await file.read()
         
-        # Create a temporary path for the uploaded file using the unique ID
-        temp_path = f"/tmp/{dataset_id}"
-        with open(temp_path, "wb") as f:
-            f.write(contents)
-        
-        # Save the dataset using the new unique ID
-        dst = save_dataset(temp_path, dataset_id)
+        # Save the dataset directly using the new unique ID
+        dst = save_dataset(contents, dataset_id)
         
         # Read a quick peek of the CSV to get columns and dtypes
-        df = pd.read_csv(dst, nrows=100)
+        df = pd.read_csv(io.BytesIO(contents), nrows=100)
         cols = list(df.columns)
         dtypes = {c: str(df[c].dtype) for c in cols}
         
         logging.info(f"Dataset {dataset_id} processed. Columns: {cols}")
-        
-        # Return the new, unique dataset_id to the frontend
         return {"dataset_id": dataset_id, "columns": cols, "dtypes": dtypes}
-        
     except Exception as e:
         logging.error(f"Error during dataset upload: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process the dataset: {str(e)}")
+
+
+def _background_train(run_id: str, req: RunRequest):
+    """
+    This function runs in the background to start the training process.
+    """
+    try:
+        logging.info(f"Background training started for run_id: {run_id}")
+        df = load_csv(req.dataset_id)
+        res = train_genetic(run_id, df, req.target, req.n_trials)
+        if not res.get("ok"):
+            set_status(run_id, "error")
+            append_event(run_id, "error", {"msg": res.get("error", "unknown")})
+            logging.error(f"Training failed for run {run_id}: {res.get('error', 'unknown')}")
+        else:
+            logging.info(f"Training for run {run_id} completed successfully.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during background training for run {run_id}", exc_info=True)
+        set_status(run_id, "error")
+        append_event(run_id, "error", {
+            "msg": str(e),
+            "trace": traceback.format_exc()[:5000]
+        })
 
 @app.post("/runs/start")
 async def runs_start(req: RunRequest):
@@ -139,3 +153,4 @@ async def predict(payload: List[Dict[str, Any]]):
         
     logging.info(f"Prediction made for {len(payload)} items.")
     return {"preds": preds}
+
