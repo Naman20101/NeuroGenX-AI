@@ -2,6 +2,7 @@ import os, json, time, uuid, shutil
 from pathlib import Path
 from typing import Dict, Any, List
 import pandas as pd
+import io
 
 # Prefer Render-safe temp. Fallback to repo-local.
 ROOT = Path(os.getenv("NG1_RUNTIME_DIR", "/tmp/ng1"))
@@ -18,18 +19,17 @@ RUNS_DIR = ROOT / "runs"
 for d in (DATA_DIR, MODELS_DIR, RUNS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
-def save_dataset(uploaded_path: str, dataset_id: str) -> str:
-    """Move/copy uploaded file into DATA_DIR with dataset_id name."""
+def save_dataset(contents: bytes, dataset_id: str) -> str:
+    """Saves file contents to DATA_DIR with dataset_id as the name."""
     dst = DATA_DIR / dataset_id
-    if Path(uploaded_path).resolve() != dst.resolve():
-        shutil.copy2(uploaded_path, dst)
+    with open(dst, "wb") as f:
+        f.write(contents)
     return str(dst)
 
 def load_csv(dataset_id: str) -> pd.DataFrame:
     p = DATA_DIR / dataset_id
     if not p.exists():
         raise FileNotFoundError(f"Dataset not found: {p}")
-    # low_memory False avoids dtype guessing issues
     return pd.read_csv(p, low_memory=False)
 
 def new_run() -> str:
