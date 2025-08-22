@@ -54,8 +54,11 @@ async def upload_dataset(file: UploadFile = File(...)) -> Dict[str, Any]:
         # Save the dataset directly using the new unique ID
         dst = save_dataset(contents, dataset_id)
         
+        # Create an in-memory text buffer to read the CSV
+        sio = io.StringIO(contents.decode('utf-8'))
+        
         # Read a quick peek of the CSV to get columns and dtypes
-        df = pd.read_csv(io.BytesIO(contents), nrows=100)
+        df = pd.read_csv(sio, nrows=100)
         cols = list(df.columns)
         dtypes = {c: str(df[c].dtype) for c in cols}
         
